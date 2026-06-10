@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+
+.venv/
+venv/
+.env
+
+.vscode/
+.idea/
+
+# Generated output - review before committing
+generated/modules/**/*.tf
+generated/deployments/**/*.tf
+generated/deployments/**/*.tfvars
+generated/deployments/**/*.sh
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# OS
+.DS_Store
+
+# Pytest
+.pytest_cache/
+.coverage
+
+# Secrets
+*.pem
+*.key
+.secrets
