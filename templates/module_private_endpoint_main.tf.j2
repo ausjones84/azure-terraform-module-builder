@@ -1,0 +1,36 @@
+{#- module_private_endpoint_main.tf.j2 -#}
+# ===========================================================================
+# AUTO-GENERATED MODULE: private_endpoint
+# Generated: {{ timestamp }} | Source: {{ resource_name }}
+# ===========================================================================
+
+resource "azurerm_private_endpoint" "this" {
+  name                = var.name
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  subnet_id           = var.subnet_id
+  # TODO: Detected subnet: {{ first_pe.subnet_name if first_pe else "unknown" }}
+  # TODO: Detected subnet ID: {{ first_pe.subnet_id if first_pe else "unknown" }}
+
+  private_service_connection {
+    name                           = "${var.name}-connection"
+    private_connection_resource_id = var.private_link_service_id
+    is_manual_connection           = false
+    subresource_names              = var.subresource_names
+  }
+
+  {% if first_pe and first_pe.dns_fqdn %}
+  # DNS zone group - uncomment if using Azure Private DNS
+  # private_dns_zone_group {
+  #   name                 = "default"
+  #   private_dns_zone_ids = [var.private_dns_zone_id]
+  # }
+  {% endif %}
+
+  tags = var.tags
+}
+
+---
+{#- module_diagnostic_setting_main.tf.j2 (combined) -#}
+# NOTE: This template covers diagnostic_setting service type
+# resource "azurerm_monitor_diagnostic_setting" "this" defined in parent resource module
