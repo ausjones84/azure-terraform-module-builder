@@ -1,0 +1,4 @@
+# Generated output directory
+# Files written by azure-terraform-module-builder go here for review.
+# REVIEW ALL FILES before copying to terraform-scripts or terraform-modules.
+# NEVER run terraform apply on generated files without review.
