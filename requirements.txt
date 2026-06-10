@@ -1,0 +1,23 @@
+# azure-terraform-module-builder - Requirements
+# pip install -r requirements.txt
+
+# Report parsing (reads DR discovery tool output)
+openpyxl>=3.1.2
+pandas>=2.1.0
+
+# Terraform code generation
+jinja2>=3.1.2
+
+# CLI + terminal UI
+click>=8.1.7
+rich>=13.6.0
+
+# YAML config support
+pyyaml>=6.0.1
+
+# Utilities
+python-dateutil>=2.8.2
+tabulate>=0.9.0
+
+# Testing
+pytest>=7.4.0
