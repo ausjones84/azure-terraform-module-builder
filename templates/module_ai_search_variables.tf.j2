@@ -1,0 +1,91 @@
+{#- module_ai_search_variables.tf.j2 -#}
+# ===========================================================================
+# MODULE VARIABLES: ai_search_service
+# Generated: {{ timestamp }} | Source: {{ resource_name }}
+# ===========================================================================
+
+variable "name" {
+  description = "The name of the Azure AI Search service"
+  type        = string
+  default     = "{{ resource_name }}"
+}
+
+variable "resource_group_name" {
+  description = "Resource group name for the search service"
+  type        = string
+  default     = "{{ resource_group }}"
+}
+
+variable "location" {
+  description = "Azure region for the search service"
+  type        = string
+  default     = "{{ location }}"
+}
+
+variable "sku" {
+  description = "SKU of the search service (free, basic, standard, standard2, standard3, storage_optimized_l1, storage_optimized_l2)"
+  type        = string
+  default     = "{{ sku or 'standard' }}"
+}
+
+variable "public_network_access_enabled" {
+  description = "Whether public network access is enabled"
+  type        = bool
+  # Detected from Azure: {{ public_network_access }}
+  default     = {{ "false" if public_network_access|lower == "disabled" else "true" }}
+}
+
+variable "replica_count" {
+  description = "TODO: Number of replicas - confirm with team"
+  type        = number
+  default     = 1
+}
+
+variable "partition_count" {
+  description = "TODO: Number of partitions - confirm with team"
+  type        = number
+  default     = 1
+}
+
+variable "hosting_mode" {
+  description = "Hosting mode (default or highDensity)"
+  type        = string
+  default     = "default"
+}
+
+variable "identity_type" {
+  description = "Managed identity type"
+  type        = string
+  # Detected from Azure: {{ identity_type }}
+  default     = "{{ identity_type or 'SystemAssigned' }}"
+}
+
+{% if has_diag %}
+variable "log_analytics_workspace_id" {
+  description = "TODO: Log Analytics workspace resource ID for diagnostic settings"
+  type        = string
+  # Detected: {{ first_diag.log_analytics_workspace_id if first_diag else 'not found' }}
+}
+{% endif %}
+
+variable "admin_group_object_id" {
+  description = "TODO: Azure AD group object ID for Search Service Contributor role"
+  type        = string
+  default     = null
+}
+
+variable "developer_group_object_id" {
+  description = "TODO: Azure AD group object ID for Search Index Data Reader role"
+  type        = string
+  default     = null
+}
+
+variable "tags" {
+  description = "Resource tags"
+  type        = map(string)
+  default = {
+{% for k, v in tags.items() %}
+    {{ k }} = "{{ v }}"
+{% endfor %}
+  }
+}
