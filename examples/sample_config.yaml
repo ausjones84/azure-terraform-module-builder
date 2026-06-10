@@ -1,0 +1,57 @@
+# sample_config.yaml
+# azure-terraform-module-builder - Sample Configuration File
+# Copy and customize for your environment.
+# All CLI flags can be set here; CLI flags take precedence.
+
+# ==============================================================
+# Input: Path to DR Discovery Tool output
+# ==============================================================
+input_file: "./reports/discovery_20260610.json"   # .json or .xlsx
+
+# ==============================================================
+# Output: Where generated files are written
+# ==============================================================
+output_dir: "./generated"
+
+# ==============================================================
+# Terraform Modules Repository
+# ==============================================================
+module_root: "./terraform-modules"
+
+# ==============================================================
+# Environment Path (folder structure for deployments)
+# ==============================================================
+env_path: "edav/dev"     # e.g. edav/dev, corp/prod, shared/staging
+
+# ==============================================================
+# Service Filter (leave empty to process all actionable services)
+# ==============================================================
+services: []             # e.g. [ai_search, openai, private_endpoint]
+
+# ==============================================================
+# Generation Mode
+# ==============================================================
+generate_modules: true       # Generate terraform-modules/ scaffolds
+generate_deployments: true   # Generate terraform-scripts/ deployment folders
+
+# ==============================================================
+# Write Mode (EXPLICIT - default is dry-run)
+# ==============================================================
+# Set to true to write files. Default: false (dry-run only).
+# CLI flag --write takes precedence.
+write: false
+
+# ==============================================================
+# Templates
+# ==============================================================
+templates_dir: null          # null = use built-in templates
+
+# ==============================================================
+# SAFETY NOTES
+# ==============================================================
+# - Default mode is DRY-RUN. Set write: true or use --write to generate.
+# - terraform apply is NEVER run by this tool.
+# - Azure is NEVER modified.
+# - All output goes to ./generated for human review before use.
+# - Always run terraform plan before apply.
+# - Always run import commands for existing Azure resources before apply.
