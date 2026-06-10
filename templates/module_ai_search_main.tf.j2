@@ -1,0 +1,75 @@
+{#- module_ai_search_main.tf.j2 -#}
+{#- Terraform module main.tf for Azure AI Search -#}
+# ===========================================================================
+# AUTO-GENERATED MODULE: ai_search_service
+# Generated: {{ timestamp }}
+# Source: {{ resource_name }} ({{ resource_type }})
+# REVIEW ALL TODO ITEMS before use in production.
+# NEVER run terraform apply without: init → plan → import (if needed) → review
+# ===========================================================================
+
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+}
+
+resource "azurerm_search_service" "this" {
+  name                = var.name
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  sku                 = var.sku
+
+  public_network_access_enabled = var.public_network_access_enabled
+  replica_count                 = var.replica_count
+  partition_count               = var.partition_count
+  hosting_mode                  = var.hosting_mode
+
+  identity {
+    type = var.identity_type
+  }
+
+  tags = var.tags
+}
+
+# ---------------------------------------------------------------------------
+# Diagnostic Settings
+# ---------------------------------------------------------------------------
+{% if has_diag %}
+resource "azurerm_monitor_diagnostic_setting" "this" {
+  name                       = "${var.name}-diagnostics"
+  target_resource_id         = azurerm_search_service.this.id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+
+  # TODO: Adjust log/metric categories based on requirements
+  enabled_log {
+    category = "OperationLogs"
+  }
+
+  metric {
+    category = "AllMetrics"
+    enabled  = true
+  }
+}
+{% else %}
+# TODO: Add azurerm_monitor_diagnostic_setting if diagnostics are required
+{% endif %}
+
+# ---------------------------------------------------------------------------
+# RBAC Role Assignments
+# ---------------------------------------------------------------------------
+# TODO: Uncomment and fill when role assignments are required
+# resource "azurerm_role_assignment" "admin" {
+#   scope                = azurerm_search_service.this.id
+#   role_definition_name = "Search Service Contributor"
+#   principal_id         = var.admin_group_object_id
+# }
+#
+# resource "azurerm_role_assignment" "reader" {
+#   scope                = azurerm_search_service.this.id
+#   role_definition_name = "Search Index Data Reader"
+#   principal_id         = var.developer_group_object_id
+# }
