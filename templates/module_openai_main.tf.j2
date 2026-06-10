@@ -1,0 +1,86 @@
+{#- module_openai_main.tf.j2 - Azure OpenAI / Cognitive Services module -#}
+# ===========================================================================
+# AUTO-GENERATED MODULE: cognitive_account (OpenAI / AI Services)
+# Generated: {{ timestamp }} | Source: {{ resource_name }}
+# ===========================================================================
+
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+}
+
+resource "azurerm_cognitive_account" "this" {
+  name                  = var.name
+  resource_group_name   = var.resource_group_name
+  location              = var.location
+  kind                  = var.kind
+  sku_name              = var.sku_name
+  # Detected from Azure: public_network_access = {{ public_network_access }}
+  public_network_access = var.public_network_access
+  custom_subdomain_name = var.custom_subdomain_name
+
+  identity {
+    type = var.identity_type
+  }
+
+  # TODO: Uncomment if network ACLs required
+  # network_acls {
+  #   default_action = "Deny"
+  #   ip_rules       = []
+  # }
+
+  tags = var.tags
+
+  lifecycle {
+    # TODO: Review ignore_changes based on deployment pattern
+    # ignore_changes = [tags]
+  }
+}
+
+{% if has_diag %}
+# ---------------------------------------------------------------------------
+# Diagnostic Settings
+# ---------------------------------------------------------------------------
+resource "azurerm_monitor_diagnostic_setting" "this" {
+  name                       = "${var.name}-diagnostics"
+  target_resource_id         = azurerm_cognitive_account.this.id
+  log_analytics_workspace_id = var.log_analytics_workspace_id
+  # TODO: Detected workspace: {{ first_diag.log_analytics_workspace_name if first_diag else "unknown" }}
+
+  enabled_log {
+    category = "Audit"
+  }
+  enabled_log {
+    category = "RequestResponse"
+  }
+  metric {
+    category = "AllMetrics"
+    enabled  = true
+  }
+}
+{% endif %}
+
+{% if has_pe %}
+# ---------------------------------------------------------------------------
+# Private Endpoint
+# ---------------------------------------------------------------------------
+# TODO: Private endpoint detected - {{ first_pe.name if first_pe else "unknown" }}
+# Uncomment and configure if this module should manage the PE
+# resource "azurerm_private_endpoint" "this" {
+#   name                = "${var.name}-pe"
+#   resource_group_name = var.resource_group_name
+#   location            = var.location
+#   subnet_id           = var.subnet_id  # TODO: {{ first_pe.subnet_id if first_pe else "unknown" }}
+#
+#   private_service_connection {
+#     name                           = "${var.name}-connection"
+#     private_connection_resource_id = azurerm_cognitive_account.this.id
+#     is_manual_connection           = false
+#     subresource_names              = ["account"]
+#   }
+# }
+{% endif %}
