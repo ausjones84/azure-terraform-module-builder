@@ -6,33 +6,41 @@ Reads DR discovery tool output and generates Terraform module
 scaffolds and deployment folders for missing resources.
 
 Usage:
-    # Dry-run (default) - plan only, write nothing
-    python src/cli.py --input ./reports/discovery_20260610.json \\
-        --output ./generated \\
-        --module-root ./terraform-modules \\
-        --env-path edav/dev
+  # Auth check only
+  python src/cli.py --auth-check
 
-    # Generate files
-    python src/cli.py --input ./reports/discovery_20260610.json \\
-        --output ./generated \\
-        --write
+  # Dry-run (default) - plan only, write nothing
+  python src/cli.py --input ./reports/discovery_20260610.json \
+    --output ./generated \
+    --module-root ./terraform-modules \
+    --env-path edav/dev
 
-    # Generate for a specific service only
-    python src/cli.py --input ./reports/discovery_20260610.xlsx \\
-        --output ./generated \\
-        --service ai_search \\
-        --write
+  # Generate files (requires --write)
+  python src/cli.py --input ./reports/discovery_20260610.json \
+    --output ./generated \
+    --write
 
-    # Generate both module scaffold AND deployment folder
-    python src/cli.py --input ./reports/discovery.json \\
-        --output ./generated \\
-        --generate-modules --generate-deployments \\
-        --write
+  # Generate for a specific service
+  python src/cli.py --input ./reports/discovery_20260610.xlsx \
+    --output ./generated \
+    --service ai_search \
+    --write
+
+  # Generate both module scaffold AND deployment folder
+  python src/cli.py --input ./reports/discovery.json \
+    --output ./generated \
+    --generate-modules --generate-deployments \
+    --write
+
+  # Skip auth check (not recommended)
+  python src/cli.py --input ./reports/discovery.json --skip-auth-check
 
 SAFETY:
-    Default mode is DRY-RUN. No files are written unless --write is passed.
-    terraform apply is NEVER run.
-    Azure is NEVER modified.
+  Default mode is DRY-RUN. No files written unless --write is passed.
+  terraform apply is NEVER run.
+  Azure is NEVER modified.
+  Authentication pre-flight runs by default to verify Azure access.
+  --write operations require valid Azure CLI login.
 """
 
 import logging
@@ -58,6 +66,7 @@ from deployment_generator import DeploymentGenerator
 from stub_validator import (
     validate_all_plans, print_dry_run_summary, print_write_summary
 )
+from auth_guard import enforce_auth_guard, run_auth_guard, print_auth_guard_result
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -68,10 +77,6 @@ BANNER = """
 [dim]Default mode: DRY-RUN only. Use --write to generate files.[/dim]
 """
 
-
-# ---------------------------------------------------------------------------
-# Config loader
-# ---------------------------------------------------------------------------
 
 def load_config(config_path: str) -> dict:
     """Load optional YAML config file."""
@@ -86,10 +91,6 @@ def load_config(config_path: str) -> dict:
         return {}
 
 
-# ---------------------------------------------------------------------------
-# Core pipeline
-# ---------------------------------------------------------------------------
-
 def run_builder(
     input_file: str,
     output_dir: str,
@@ -100,11 +101,13 @@ def run_builder(
     generate_deployments: bool,
     write: bool,
     templates_dir: Optional[str],
+    skip_auth_check: bool = False,
 ) -> BuildReport:
     """
     Core module builder pipeline.
 
     Steps:
+    0. Auth pre-flight check
     1. Read discovery input file
     2. Filter actionable resources
     3. Plan module and/or deployment generation
@@ -119,6 +122,34 @@ def run_builder(
     console.print(f"[bold]Output:[/bold] {output_dir}")
     console.print(f"[bold]Env Path:[/bold] {env_path}")
     console.print()
+
+    # -----------------------------------------------------------------------
+    # Step 0: Authentication Pre-flight
+    # -----------------------------------------------------------------------
+    if not skip_auth_check:
+        # For write mode: require Azure login
+        # For dry-run: warn but allow if not logged in
+        require_login = write  # Enforce login when writing files
+        guard_result = run_auth_guard(
+            check_azure=True,
+            check_terraform=True,
+            require_azure_login=require_login,
+            require_tf_auth=False,  # TF auth only needed for apply, which we never do
+        )
+        print_auth_guard_result(guard_result)
+        console.print()
+
+        if require_login and not guard_result.passed:
+            console.print("[bold red]Auth pre-flight failed. Aborting.[/bold red]")
+            console.print("[dim]Use --skip-auth-check to bypass (not recommended for write mode).[/dim]")
+            sys.exit(1)
+        elif not guard_result.az_logged_in:
+            console.print("[yellow]WARNING: Not logged in to Azure CLI. Dry-run mode only.[/yellow]")
+            console.print("[dim]Run az login before using --write mode.[/dim]")
+            console.print()
+    else:
+        console.print("[yellow]WARNING: Auth pre-flight skipped (--skip-auth-check).[/yellow]")
+        console.print()
 
     report = BuildReport(
         input_file=input_file,
@@ -136,7 +167,6 @@ def run_builder(
         transient=True,
     ) as progress:
 
-        # Step 1: Read input
         task1 = progress.add_task("[cyan]Reading discovery file...", total=None)
         try:
             all_resources = read_discovery_file(input_file)
@@ -148,10 +178,8 @@ def run_builder(
             return report
         progress.stop_task(task1)
 
-        # Step 2: Filter
         task2 = progress.add_task("[cyan]Filtering actionable resources...", total=None)
         actionable = filter_actionable(all_resources)
-        # Apply service filter
         if services:
             svc_set = {s.lower() for s in services}
             actionable = [r for r in actionable if r.service_type.value in svc_set]
@@ -165,7 +193,6 @@ def run_builder(
             console.print("[dim]All discovered resources may already be Terraform managed.[/dim]")
             return report
 
-        # Step 3: Plan
         task3 = progress.add_task("[cyan]Planning generation...", total=None)
         module_gen = ModuleGenerator(
             output_dir=output_dir,
@@ -179,7 +206,6 @@ def run_builder(
             templates_dir=templates_dir,
             dry_run=not write,
         )
-
         for resource in actionable:
             if generate_modules:
                 plan = module_gen.plan(resource)
@@ -190,41 +216,31 @@ def run_builder(
         progress.update(task3, description=f"[green]Planned {len(report.plans)} generation task(s)")
         progress.stop_task(task3)
 
-        # Step 4: Validate
         task4 = progress.add_task("[cyan]Validating plans...", total=None)
         validation_results = validate_all_plans(report.plans)
         progress.update(task4, description="[green]Validation complete")
         progress.stop_task(task4)
 
-        # Step 5: Write (if requested)
         if write:
             task5 = progress.add_task("[cyan]Writing files...", total=None)
             for i, plan in enumerate(report.plans):
-                if plan.service_type == _infer_service(plan):
-                    pass  # Already typed
-                if generate_modules and plan.module_output_path:
+                if generate_modules and getattr(plan, "module_output_path", None):
                     updated = module_gen.execute(plan)
                     report.plans[i] = updated
-                elif generate_deployments and plan.deployment_output_path:
+                elif generate_deployments and getattr(plan, "deployment_output_path", None):
                     updated = deploy_gen.execute(plan)
                     report.plans[i] = updated
             progress.update(task5, description="[green]Files written")
             progress.stop_task(task5)
 
-    # Step 6: Print summary
     if not write:
         print_dry_run_summary(report, validation_results)
     else:
         print_write_summary(report)
 
-    # Next steps
     report.next_steps = _build_next_steps(report, write)
     report.summary_lines = _build_summary(report, actionable)
     return report
-
-
-def _infer_service(plan):
-    return plan.service_type
 
 
 def _build_summary(report: BuildReport, actionable: list) -> List[str]:
@@ -252,82 +268,34 @@ def _build_next_steps(report: BuildReport, write: bool) -> List[str]:
     return steps
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 @click.command()
-@click.option(
-    "--input", "-i", "input_file",
-    required=True,
-    help="Path to DR discovery output file (.json or .xlsx)."
-)
-@click.option(
-    "--output", "-o",
-    default="./generated",
-    show_default=True,
-    help="Output directory for generated files."
-)
-@click.option(
-    "--module-root", "-m",
-    default="./terraform-modules",
-    show_default=True,
-    help="Path to existing terraform-modules repository."
-)
-@click.option(
-    "--env-path",
-    default="edav/dev",
-    show_default=True,
-    help="Environment path for deployment folders (e.g. edav/dev)."
-)
-@click.option(
-    "--service", "-s",
-    multiple=True,
-    type=click.Choice(
-        ["ai_search", "openai", "ai_foundry", "private_endpoint",
-         "diagnostic_setting", "rbac", "generic"],
-        case_sensitive=False,
-    ),
-    help="Filter to specific service type(s) only. Repeatable."
-)
-@click.option(
-    "--generate-modules/--no-modules",
-    default=True,
-    show_default=True,
-    help="Generate Terraform module scaffolds."
-)
-@click.option(
-    "--generate-deployments/--no-deployments",
-    default=True,
-    show_default=True,
-    help="Generate Terraform deployment folders."
-)
-@click.option(
-    "--write",
-    is_flag=True,
-    default=False,
-    help="[EXPLICIT] Write generated files to disk. Default is dry-run only."
-)
-@click.option(
-    "--config", "-c",
-    default=None,
-    help="Optional YAML config file."
-)
-@click.option(
-    "--templates-dir",
-    default=None,
-    help="Path to Jinja2 templates directory."
-)
-@click.option(
-    "--verbose", "-v",
-    is_flag=True,
-    default=False,
-    help="Enable verbose debug logging."
-)
+@click.option("--input", "-i", "input_file", default=None,
+    help="Path to DR discovery output file (.json or .xlsx).")
+@click.option("--output", "-o", default="./generated", show_default=True)
+@click.option("--module-root", "-m", default="./terraform-modules", show_default=True)
+@click.option("--env-path", default="edav/dev", show_default=True)
+@click.option("--service", "-s", multiple=True,
+    type=click.Choice([
+        "ai_search", "openai", "ai_foundry", "private_endpoint",
+        "diagnostic_setting", "rbac", "generic"
+    ], case_sensitive=False),
+    help="Filter to specific service type(s). Repeatable.")
+@click.option("--generate-modules/--no-modules", default=True)
+@click.option("--generate-deployments/--no-deployments", default=True)
+@click.option("--write", is_flag=True, default=False,
+    help="[EXPLICIT] Write generated files to disk. Default is dry-run only.")
+@click.option("--config", "-c", default=None)
+@click.option("--templates-dir", default=None)
+@click.option("--verbose", "-v", is_flag=True, default=False)
+@click.option("--skip-auth-check", is_flag=True, default=False,
+    help="Skip authentication pre-flight check. Not recommended.")
+@click.option("--auth-check", is_flag=True, default=False,
+    help="Run auth check only without performing any generation.")
 def main(
     input_file, output, module_root, env_path,
     service, generate_modules, generate_deployments,
     write, config, templates_dir, verbose,
+    skip_auth_check, auth_check,
 ):
     """
     Azure Terraform Module Builder
@@ -337,11 +305,25 @@ def main(
 
     Default mode is DRY-RUN. Pass --write to generate files.
     terraform apply is NEVER run by this tool.
+    Authentication pre-flight runs by default.
+    Use --auth-check to verify authentication without generation.
     """
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.WARNING,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+
+    # Auth-check-only mode
+    if auth_check:
+        console.print(Panel.fit(BANNER, border_style="blue"))
+        console.print("[bold]Authentication Check Mode[/bold]")
+        console.print()
+        enforce_auth_guard(require_azure_login=False, require_tf_auth=False)
+        sys.exit(0)
+
+    if not input_file:
+        console.print("[red]Error: --input is required for generation. Use --auth-check for auth only.[/red]")
+        sys.exit(1)
 
     cfg = load_config(config) if config else {}
 
@@ -355,6 +337,7 @@ def main(
         generate_deployments=generate_deployments,
         write=write,
         templates_dir=templates_dir or cfg.get("templates_dir"),
+        skip_auth_check=skip_auth_check,
     )
 
 
