@@ -100,7 +100,9 @@ class DeploymentGenerator:
         except Exception:
             return None
 
-    def _safety_header(self, rn: str) -> str:
+    def _safety_header(self, rn: str, is_onboarding: bool = False) -> str:
+        if is_onboarding:
+            return ONBOARDING_HEADER.format(timestamp=self._timestamp, resource_name=rn)
         return SAFETY_HEADER.format(timestamp=self._timestamp, resource_name=rn)
 
     def _module_name(self, resource: DiscoveredResource) -> str:
@@ -195,6 +197,15 @@ class DeploymentGenerator:
     def _build_context(self, resource: DiscoveredResource, module_name: str) -> dict:
         first_pe = resource.private_endpoints[0] if resource.private_endpoints else None
         first_diag = resource.diagnostic_settings[0] if resource.diagnostic_settings else None
+
+        # Detect onboarding candidate: resource exists in Azure but no Terraform deployment definition
+        # Set by discovery tool classification or inferred from comparison_status field
+        comparison_status = getattr(resource, "comparison_status", "")
+        is_onboarding_candidate = (
+            comparison_status == "terraform_onboarding_candidate"
+            or getattr(resource, "is_onboarding_candidate", False)
+        )
+
         return {
             "resource": resource,
             "resource_name": resource.name,
@@ -215,6 +226,8 @@ class DeploymentGenerator:
             "module_source": self._module_source(module_name),
             "env_path": self.env_path,
             "timestamp": self._timestamp,
+            # Onboarding candidate flag
+            "is_onboarding_candidate": is_onboarding_candidate,
         }
 
     # -------------------------------------------------------------------------
@@ -240,9 +253,21 @@ class DeploymentGenerator:
         identity = ctx.get("identity_type", "SystemAssigned")
         public = ctx.get("public_network_access", "")
         public_bool = "false" if (public or "").lower() == "disabled" else "# TODO"
+        is_onboarding = ctx.get("is_onboarding_candidate", False)
+
+        # For onboarding candidates, add an explicit comment block
+        onboarding_comment = ""
+        if is_onboarding:
+            onboarding_comment = (
+                "# NOTE: TERRAFORM ONBOARDING CANDIDATE\n"
+                "# This resource already exists in Azure and was created outside Terraform.\n"
+                "# Import existing resources BEFORE applying.\n"
+                "# Plan MUST return: Plan: 0 to add, 0 to change, 0 to destroy\n"
+            )
 
         lines = [
-            self._safety_header(rn),
+            self._safety_header(rn, is_onboarding=is_onboarding),
+            onboarding_comment,
             'terraform {',
             '  required_providers {',
             '    azurerm = {',
@@ -373,7 +398,13 @@ class DeploymentGenerator:
         rn = ctx["resource_name"]
         svc = ctx["service_type"]
         mn = ctx["module_name"]
+        is_onboarding = ctx.get("is_onboarding_candidate", False)
         resource_id = f"/subscriptions/{ctx.get('subscription_id','TODO')}/resourceGroups/{ctx.get('resource_group','TODO')}/providers/{ctx.get('resource_type','TODO')}/{rn}"
+
+        # Add onboarding validation note
+        onboarding_note = ""
+        if is_onboarding:
+            onboarding_note = "# ONBOARDING CANDIDATE: All sub-resources must be imported.\n# Plan MUST return: Plan: 0 to add, 0 to change, 0 to destroy before apply.\n#"
 
         tf_type_map = {
             "ai_search": "azurerm_search_service.this",
@@ -391,6 +422,7 @@ class DeploymentGenerator:
             "# IMPORT COMMANDS - DO NOT RUN WITHOUT REVIEW",
             f"# Generated: {self._timestamp}",
             f"# Resource: {rn}",
+            onboarding_note,
             "# ===========================================================================",
             "#",
             "# BEFORE RUNNING:",
