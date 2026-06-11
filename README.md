@@ -315,3 +315,119 @@ Both tools are read-only/dry-run by default and never modify Azure or Terraform 
 ---
 
 > **All generated files are DRAFTS requiring human review. This tool never runs terraform apply, never modifies Azure, and never changes Terraform state.**
+
+
+---
+
+## Terraform Onboarding Workflow
+
+When the DR Discovery Tool classifies a resource as `terraform_onboarding_candidate`,
+this module builder generates an onboarding-aware deployment definition with the following workflow:
+
+```
+Azure Resource Exists
+       |
+       v
+Terraform Module Exists (in terraform-modules)
+       |
+       v
+Deployment Definition Missing (not in terraform-scripts)
+       |
+       v
+Generate Deployment Definition (this tool)
+  terraform-scripts/<env>/<module>/main.tf
+  terraform-scripts/<env>/<module>/variables.tf
+  terraform-scripts/<env>/<module>/import_commands.sh
+       |
+       v
+Import Existing Resources
+  Run: bash import_commands.sh
+  (review ALL commands before running)
+       |
+       v
+Terraform Plan
+  Run: terraform plan -var-file=terraform.tfvars
+       |
+       v
+Validate Zero Drift
+  Plan: 0 to add, 0 to change, 0 to destroy
+  STOP if plan shows any add/change/destroy - resolve before continuing
+       |
+       v
+Submit PR
+       |
+       v
+Approval (required)
+       |
+       v
+Apply (only after approval)
+```
+
+### What the Module Builder Generates for Onboarding Candidates
+
+When a resource is flagged as `terraform_onboarding_candidate`:
+
+**`main.tf`** — includes an `ONBOARDING_HEADER` block with:
+- Clear warning that the resource was created outside Terraform
+- Mandatory import-before-apply instruction
+- Plan validation requirement: `Plan: 0 to add, 0 to change, 0 to destroy`
+- Comment block at module call: `# TERRAFORM ONBOARDING CANDIDATE`
+
+**`import_commands.sh`** — includes:
+- Import commands for the primary resource
+- Import commands for all private endpoints
+- Import commands for all diagnostic settings
+- Import commands for all RBAC assignments
+- Explicit note: `Plan MUST return: Plan: 0 to add, 0 to change, 0 to destroy before apply`
+
+**`variables.tf`** — standard variable declarations
+
+### Risk Levels for Onboarding Candidates
+
+| Risk Level | When Applied |
+|-----------|-------------|
+| `HIGH` | Resource exists + created outside Terraform (all candidates start here) |
+| `CRITICAL` | PE + diagnostic settings + RBAC all present — import all sub-resources |
+
+### Example: AI Search Onboarding with Module Builder
+
+```bash
+# Step 1: Run module builder against discovery output
+python src/cli.py \
+  --input ./reports/discovery_20260611.json \
+  --output ./generated \
+  --module-root ./terraform-modules \
+  --env-path edav/dev \
+  --generate-deployments \
+  --write
+
+# Step 2: Review generated files
+# generated/deployments/edav/dev/ai_search_service/main.tf
+# generated/deployments/edav/dev/ai_search_service/variables.tf
+# generated/deployments/edav/dev/ai_search_service/import_commands.sh
+
+# Step 3: Copy to terraform-scripts (after review)
+# cp -r generated/deployments/edav/dev/ai_search_service \
+#        terraform-scripts/edav/dev/ai_search_service
+
+# Step 4: Fill all TODO values in main.tf and terraform.tfvars
+
+# Step 5: Init and import
+# cd terraform-scripts/edav/dev/ai_search_service
+# terraform init
+# bash import_commands.sh  (review first!)
+
+# Step 6: Plan - MUST return zero drift
+# terraform plan
+# Expected: Plan: 0 to add, 0 to change, 0 to destroy
+
+# Step 7: Submit PR - DO NOT apply without approval
+```
+
+### Safety Rules (Unchanged)
+
+- Default mode is **DRY-RUN**. No files are written without `--write`
+- `terraform apply` is **NEVER** run by this tool
+- Azure resources are **NEVER** modified
+- All generated files are drafts — human review is always required
+- Import commands are **output only** — they are never executed automatically
